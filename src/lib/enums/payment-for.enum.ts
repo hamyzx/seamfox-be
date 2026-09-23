@@ -1,0 +1,4 @@
+export enum PaymentFor {
+  SUBSCRIPTION = 'SUBSCRIPTION',
+  CONTENT_BOOST = 'CONTENT_BOOST',
+}

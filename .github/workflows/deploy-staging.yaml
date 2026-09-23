@@ -1,0 +1,107 @@
+name: Deploy Seamfox Backend to EC2 (Staging)
+
+on:
+  push:
+    branches:
+      - staging
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Create source archive
+        run: |
+          tar --warning=no-file-changed -czf /tmp/source.tar.gz \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='.git' \
+            --exclude='source.tar.gz' \
+            . || true
+          mv /tmp/source.tar.gz ./source.tar.gz
+          ls -lh source.tar.gz
+
+      - name: Upload source to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          password: ${{ secrets.EC2_PASSWORD }}
+          source: "source.tar.gz"
+          target: "/tmp"
+
+      # Install dependencies
+      - name: Install dependencies
+        run: npm ci
+
+      # Build the application
+      - name: Build application
+        run: npm run build
+
+      - name: Create deployment archive
+        run: |
+          tar -czf deployment.tar.gz \
+            dist/ \
+            node_modules/ \
+            package.json \
+            package-lock.json \
+            deploy-staging.sh
+
+      # Deploy to EC2
+      - name: Deploy to EC2
+        env:
+          PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          HOST: ${{ secrets.EC2_HOST }}
+          USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -e
+
+          echo "🔐 Writing private key..."
+          printf "%s\n" "$PRIVATE_KEY" | sed 's/\r$//' > private_key.pem
+          chmod 600 private_key.pem
+
+          echo "🔎 Validating key..."
+          head -n 1 private_key.pem
+          tail -n 1 private_key.pem
+
+          echo "🔌 Testing SSH connection..."
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ${USER}@${HOST} "echo SSH SUCCESS"
+
+          echo "📦 Uploading archive..."
+          scp -o StrictHostKeyChecking=no -i private_key.pem \
+            deployment-staging.tar.gz ${USER}@${HOST}:/tmp/deployment-staging.tar.gz
+
+          echo "🚀 Running remote deployment..."
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ${USER}@${HOST} <<EOF
+            set -e
+
+            APP_DIR="/home/${USER}/seamfox-be-staging"
+            BACKUP_DIR="/home/${USER}/seamfox-be-staging-backup"
+
+            if [ -d "\$APP_DIR" ]; then
+              echo "📋 Creating backup..."
+              rm -rf "\$BACKUP_DIR"
+              cp -r "\$APP_DIR" "\$BACKUP_DIR"
+            fi
+
+            mkdir -p "\$APP_DIR"
+
+            echo "📂 Extracting package..."
+            tar -xzf /tmp/deployment-staging.tar.gz -C "\$APP_DIR"
+
+            cd "\$APP_DIR"
+
+            echo "📦 Installing production dependencies..."
+            npm ci --omit=dev
+
+            chmod +x deploy-staging.sh
+            ./deploy-staging.sh
+            
+            # Clean up
+            rm /tmp/deployment.tar.gz
+          EOF
+            rm private_key.pem

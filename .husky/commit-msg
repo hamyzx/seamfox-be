@@ -1,0 +1,10 @@
+echo ""
+echo "⧗ Please follow the commit message convention:"
+echo "   feat(ABC-123): Add your message here"
+echo "   fix(ABC-123): resolve login issue"
+echo "   refactor(ABC-123): update dependencies"
+echo ""
+
+npx --no-install commitlint --edit "$1" >/dev/null 2>&1
+exit 0
+

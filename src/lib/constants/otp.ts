@@ -1,0 +1,1 @@
+export const OTP_EXPIRE_IN_MS = 60 * 1000;

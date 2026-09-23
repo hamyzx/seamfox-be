@@ -1,0 +1,13 @@
+export enum FriendStatus {
+  FALSE = 'FALSE',
+  FRIENDS = 'FRIENDS',
+  REQUESTED = 'REQUESTED',
+  REQUEST_RECEIVED = 'REQUEST_RECEIVED',
+}
+
+export enum FollowStatus {
+  FALSE = 'FALSE',
+  FOLLOWING = 'FOLLOWING',
+  REQUESTED = 'REQUESTED',
+  //   REQUEST_RECEIVED = 'REQUEST_RECEIVED',
+}

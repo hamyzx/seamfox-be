@@ -1,0 +1,1 @@
+export const DEFAULT_POST_RANGE_IN_METRE = 30000;

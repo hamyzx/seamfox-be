@@ -1,0 +1,1 @@
+export const SUPPORTED_FILE_SIZE_IN_BITS = 25 * 1024 * 1024;

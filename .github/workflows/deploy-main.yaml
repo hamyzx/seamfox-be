@@ -1,0 +1,106 @@
+name: Deploy NestJS to EC2 (Production)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Setup SSH and Deploy
+        env:
+          PRIVATE_KEY: ${{ secrets.PROD_EC2_SSH_PRIVATE_KEY }}
+          HOST: ${{ secrets.PROD_EC2_HOST }}
+          USER: ${{ secrets.PROD_EC2_USER }}
+        run: |
+          # Trim whitespace from variables
+          HOST=$(echo "$HOST" | tr -d '[:space:]')
+          USER=$(echo "$USER" | tr -d '[:space:]')
+          
+          echo "Connecting to: [$USER@$HOST]"
+          
+          # Verify build
+          echo "Verifying build..."
+          if [ ! -f "dist/main.js" ]; then
+            echo "Build failed: dist/main.js not found"
+            exit 1
+          fi
+          echo "Build verified"
+          
+          # Setup SSH
+          mkdir -p ~/.ssh
+          echo "$PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          
+          # Create deployment package
+          echo "Creating deployment package..."
+          tar -czf deployment.tar.gz dist/ node_modules/ package.json package-lock.json deploy.sh
+          ls -lh deployment.tar.gz
+          
+          # Transfer to EC2
+          echo "Transferring to EC2..."
+          scp -i ~/.ssh/id_rsa deployment.tar.gz "$USER@$HOST:/tmp/seamfox-be-deployment.tar.gz"
+          echo "Transfer complete"
+          
+          # Deploy on EC2
+          echo "Deploying on EC2..."
+          ssh -i ~/.ssh/id_rsa "$USER@$HOST" 'bash -s' << 'ENDSSH'
+            set -e
+            
+            APP_DIR="/home/ubuntu/apps/seamfox-be"
+            BACKUP_DIR="/home/ubuntu/apps/seamfox-be-backup"
+            
+            if [ -d "$APP_DIR" ]; then
+              echo "Creating backup..."
+              rm -rf $BACKUP_DIR
+              cp -r $APP_DIR $BACKUP_DIR
+            fi
+            
+            mkdir -p $APP_DIR
+            
+            echo "Extracting package..."
+            tar -xzf /tmp/seamfox-be-deployment.tar.gz -C $APP_DIR
+            
+            chmod +x $APP_DIR/deploy.sh
+            
+            cd $APP_DIR
+            ./deploy.sh
+            
+            rm /tmp/seamfox-be-deployment.tar.gz
+            
+            echo "Deployment completed"
+          ENDSSH
+          
+          rm ~/.ssh/id_rsa
+          echo "Done!"
+
+      - name: Notify Success
+        if: success()
+        run: |
+          echo "Production deployment successful!"
+          echo "Backend URL: https://api.seamfox.com"
+      
+      - name: Notify Failure
+        if: failure()
+        run: |
+          echo "Production deployment failed!"
